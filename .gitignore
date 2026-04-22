@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets (NEVER commit real keys)
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Streamlit runtime
+streamlit.log
+streamlit.err
+
+# Cached market data (safe to regenerate on server)
+data/cache.csv
+
+# Generated PDF reports (user-downloaded artifacts)
+data/exports/
+
+
+# Generated artifacts
+out/
+build/
+dist/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
