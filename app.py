@@ -80,12 +80,11 @@ header[data-testid="stHeader"] { height: 0; background: transparent; }
 .app-header .subtitle { font-size: 12px; color: #C9D6E4; margin-top: 2px; }
 
 /* LLM pill-button lifted into the banner's top-right corner.
-   `st.container(key="llm_btn_lift")` stamps the DOM node with class
-   `st-key-llm_btn_lift`. We pull the whole container up with negative
-   margin so the button lands on the banner's right edge. */
+   Container class `st-key-llm_btn_lift` comes from st.container(key=...). */
 .st-key-llm_btn_lift {
-  margin-top: -58px !important;
-  margin-bottom: 32px !important;
+  margin-top: -54px !important;
+  margin-bottom: 22px !important;
+  margin-right: 10px !important;
   position: relative;
   z-index: 20;
   pointer-events: none;
@@ -94,21 +93,25 @@ header[data-testid="stHeader"] { height: 0; background: transparent; }
 .st-key-llm_btn_lift [data-testid="column"] > div { gap: 0 !important; }
 .st-key-llm_btn_lift [data-testid="stButton"] { pointer-events: auto; }
 .st-key-llm_btn_lift [data-testid="stButton"] > button {
-  background: rgba(255,255,255,0.12) !important;
+  background: rgba(255,255,255,0.10) !important;
   color: white !important;
-  border: 1px solid rgba(255,255,255,0.30) !important;
+  border: 1px solid rgba(255,255,255,0.28) !important;
   border-radius: 999px !important;
-  padding: 4px 14px !important;
-  font-size: 12px !important;
+  padding: 0 12px !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
+  letter-spacing: 0.2px !important;
   min-height: 0 !important;
-  height: 32px !important;
+  height: 26px !important;
   line-height: 1 !important;
   box-shadow: none !important;
+  white-space: nowrap !important;
+  width: auto !important;
+  min-width: 92px !important;
 }
 .st-key-llm_btn_lift [data-testid="stButton"] > button:hover {
-  background: rgba(255,255,255,0.22) !important;
-  border-color: rgba(255,255,255,0.50) !important;
+  background: rgba(255,255,255,0.20) !important;
+  border-color: rgba(255,255,255,0.45) !important;
 }
 .st-key-llm_btn_lift [data-testid="stButton"] > button:disabled {
   opacity: 0.55;
@@ -234,7 +237,7 @@ def render_header() -> None:
             <div class="title">📊 MDFinTech Robo-Adviser</div>
             <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
           </div>
-          <div style="display:flex; gap:10px; align-items:center; padding-right:130px;">
+          <div style="display:flex; gap:10px; align-items:center; padding-right:150px;">
             <span class="stage-chip">● {stage}</span>
             <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
           </div>
@@ -245,7 +248,7 @@ def render_header() -> None:
 
     # 2) Pill-button inside a keyed container (Streamlit ≥ 1.36).
     with st.container(key="llm_btn_lift"):
-        _, btn_col = st.columns([0.82, 0.18])
+        _, btn_col = st.columns([0.88, 0.12])
         with btn_col:
             if key_configured:
                 btn_label = "🟢  LLM on" if llm_on else "⚪  LLM off"
