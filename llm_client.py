@@ -35,14 +35,37 @@ from config import (
 from prompts import (
     EXPLAIN_PORTFOLIO_PROMPT,
     FOLLOWUP_INTENT_PROMPT,
+    FREEFORM_SYSTEM_PROMPT,
+    FREEFORM_USER_PROMPT,
     PARSE_ANSWER_PROMPT,
     PROFILE_REPORT_PROMPT,
     SYSTEM_PROMPT,
+    format_history_block,
     format_options_block,
     format_top_holdings,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Runtime toggle — lets the UI force "Mock mode" without unsetting the API key.
+# Call set_llm_enabled(False) to treat the client as offline for the current
+# Python process (or a Streamlit session, since _ENABLED lives in module state
+# but the toggle is re-applied from st.session_state on every rerun).
+# ---------------------------------------------------------------------------
+
+_ENABLED: bool = True
+
+
+def set_llm_enabled(enabled: bool) -> None:
+    global _ENABLED
+    _ENABLED = bool(enabled)
+
+
+def is_llm_active() -> bool:
+    """True only if a key is configured AND the runtime toggle is on."""
+    return bool(_ENABLED and LLM_CONFIG.available)
 
 
 @dataclass
@@ -66,7 +89,7 @@ def _get_client():
     global _client
     if _client is not None:
         return _client
-    if not LLM_CONFIG.available:
+    if not is_llm_active():
         return None
     try:
         from openai import OpenAI
@@ -82,8 +105,11 @@ def _get_client():
         return None
 
 
-def _chat(prompt: str, expect_json: bool = False, temperature: float = 0.3) -> str | None:
+def _chat(prompt: str, expect_json: bool = False, temperature: float = 0.3,
+          system_prompt: str | None = None) -> str | None:
     """Call the LLM. Returns None on any failure so callers can fall back."""
+    if not is_llm_active():
+        return None
     client = _get_client()
     if client is None:
         return None
@@ -93,7 +119,7 @@ def _chat(prompt: str, expect_json: bool = False, temperature: float = 0.3) -> s
         kwargs = dict(
             model=LLM_CONFIG.model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
             temperature=temperature,
@@ -425,7 +451,9 @@ def classify_followup(user_text: str) -> dict[str, Any]:
         return {"intent": "ask_metric_detail", "extracted_value": None, "reply": "Let me explain that metric.", "source": "mock"}
     if re.search(r"fund[_\s]?\d+|基金", t):
         return {"intent": "ask_fund_detail", "extracted_value": None, "reply": "Let me look up that fund.", "source": "mock"}
-    return {"intent": "unknown", "extracted_value": None, "reply": "I'm not sure how to help with that yet.", "source": "mock"}
+    # Default: treat as freeform open question (caller decides whether to
+    # actually call the LLM for it).
+    return {"intent": "freeform", "extracted_value": None, "reply": "", "source": "mock"}
 
 
 __all__ = [
@@ -434,4 +462,81 @@ __all__ = [
     "generate_profile",
     "explain_portfolio",
     "classify_followup",
+    "freeform_chat",
+    "set_llm_enabled",
+    "is_llm_active",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Free-form grounded chat — used in RECOMMEND phase when the user asks open
+# questions that don't match any structured intent.
+# ---------------------------------------------------------------------------
+
+def freeform_chat(
+    user_text: str,
+    context: dict[str, Any],
+    history: list[tuple[str, str]] | None = None,
+) -> tuple[str, str]:
+    """Ask the LLM a free-form question grounded in the user's portfolio.
+
+    ``context`` must include:
+        A_value, level_code, level_name, total_score,
+        weights (dict[str,float]), fund_names (dict[str,str]),
+        metrics (dict with expected_return, std, sharpe, utility),
+        data_source (str)
+
+    Returns (reply_text, source) where source ∈ {"llm", "mock"}.
+    """
+    user_text = (user_text or "").strip()
+    if not user_text:
+        return ("Ask me anything about your current portfolio or risk profile.", "mock")
+
+    # Try LLM path first
+    try:
+        prompt = FREEFORM_USER_PROMPT.format(
+            A_value=context.get("A_value", "?"),
+            level_code=context.get("level_code", "?"),
+            level_name=context.get("level_name", "?"),
+            total_score=context.get("total_score", "?"),
+            top_holdings_block=format_top_holdings(
+                context.get("weights", {}),
+                context.get("fund_names", {}),
+            ),
+            expected_return_pct=f"{context['metrics']['expected_return'] * 100:.2f}%",
+            std_pct=f"{context['metrics']['std'] * 100:.2f}%",
+            sharpe=float(context["metrics"].get("sharpe", 0.0)),
+            utility=float(context["metrics"].get("utility", 0.0)),
+            data_source=context.get("data_source", "simulated"),
+            history_block=format_history_block(history or []),
+            user_text=user_text,
+        )
+    except Exception as exc:
+        logger.warning("freeform prompt formatting failed: %s", exc)
+        prompt = None
+
+    raw = _chat(prompt, expect_json=False, temperature=0.6,
+                system_prompt=FREEFORM_SYSTEM_PROMPT) if prompt else None
+    if raw and len(raw.strip()) > 20:
+        return (raw.strip(), "llm")
+
+    # Mock fallback — keep it generic but grounded in what we do have.
+    return (_mock_freeform(user_text, context), "mock")
+
+
+def _mock_freeform(user_text: str, context: dict[str, Any]) -> str:
+    A = context.get("A_value", "?")
+    lvl = context.get("level_code", "?")
+    weights = context.get("weights", {}) or {}
+    top = sorted(weights.items(), key=lambda kv: -kv[1])[:2]
+    top_str = ", ".join(f"**{c}** {w * 100:.1f}%" for c, w in top if w >= 0.01) or "(no dominant holding)"
+    exp = context.get("metrics", {}).get("expected_return", 0) * 100
+    sd = context.get("metrics", {}).get("std", 0) * 100
+    return (
+        f"Based on your profile (**{lvl}**, **A = {A}**), your current portfolio "
+        f"leans on {top_str} with about **{exp:.2f}%** expected annual return and "
+        f"**{sd:.2f}%** volatility. I don't have a live LLM connection right now, "
+        f"so I can only answer structured commands — try **what if A = 2**, "
+        f"**explain Sharpe**, or **export pdf**. Switch on the LLM toggle in the "
+        f"header for a richer conversation."
+    )

@@ -54,7 +54,9 @@ from engine import (
 from llm_client import (
     classify_followup,
     explain_portfolio,
+    freeform_chat,
     generate_profile,
+    is_llm_active,
     parse_answer,
 )
 
@@ -422,10 +424,29 @@ def _handle_recommend(state: SessionState, text: str) -> list[BotSegment]:
     if kind == "ask_fund_detail":
         return [BotSegment(_fund_explainer(text, state.weights))]
 
-    # Fallback: echo with a friendly nudge
+    # --- Free-form question fallback -------------------------------------
+    # Anything else is treated as an open question. If the LLM toggle is on
+    # and a key is configured, we hand the turn to freeform_chat (grounded
+    # on the current portfolio). Otherwise we fall back to a helpful nudge
+    # with the explicit list of supported commands.
+    if is_llm_active():
+        context = {
+            "A_value": state.A_value,
+            "level_code": state.level_code,
+            "level_name": state.level_name,
+            "total_score": state.total_score,
+            "weights": state.weights,
+            "fund_names": {c: fund_display_name(c) for c in state.weights},
+            "metrics": state.metrics,
+            "data_source": state.data_source,
+        }
+        reply, source = freeform_chat(text, context)
+        return [BotSegment(reply, kind="text", llm_source=source)]
+
     return [BotSegment(
         "I'm not sure what you meant. Try **what if A = 2**, **explain Sharpe**, "
-        "**export pdf**, or **restart**.",
+        "**export pdf**, or **restart** — or turn on the **LLM** toggle in the "
+        "header for open-ended Q&A.",
         kind="warning",
     )]
 

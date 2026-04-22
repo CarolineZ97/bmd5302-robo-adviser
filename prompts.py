@@ -122,7 +122,7 @@ their intent into ONE of:
 - "ask_metric_detail"     (they want explanation of a metric like Sharpe / variance)
 - "restart"               (they want to retake the questionnaire)
 - "export_pdf"            (they want to export / download the report)
-- "unknown"
+- "freeform"              (anything else — general investment questions, commentary, requests for interpretation)
 
 Return STRICT JSON:
 {{
@@ -135,6 +135,75 @@ User message: \"\"\"{user_text}\"\"\"
 
 Respond with JSON ONLY.
 """
+
+
+# ---------------------------------------------------------------------------
+# Free-form advisory chat (used when user asks open-ended questions in the
+# RECOMMEND phase — "am I conservative?", "why so much gold?", "what happens
+# if the Fed cuts rates?" etc).  The model gets the current portfolio as
+# grounded context so it cannot invent numbers out of thin air.
+# ---------------------------------------------------------------------------
+
+FREEFORM_SYSTEM_PROMPT = (
+    "You are a seasoned yet approachable wealth advisor for the BMD5302 "
+    "Robo-Adviser demo. The student has a questionnaire-derived risk "
+    "aversion A and an optimized Markowitz portfolio. Your job: answer "
+    "their open-ended question in 2–5 sentences, grounded ONLY in the "
+    "data shown below. "
+    "Rules: (1) Never invent tickers, returns, correlations, or future "
+    "prices. (2) Never give a directional market forecast or single-stock "
+    "buy/sell call. (3) When a number is needed, quote it from the context "
+    "block verbatim. (4) If the user asks for advice outside portfolio "
+    "construction (e.g. tax, legal, insurance), politely redirect. "
+    "(5) Keep the tone warm, concrete, and use plain English plus "
+    "light finance jargon. End with one short actionable nudge "
+    "(e.g. 'try changing A to 2 and compare')."
+)
+
+FREEFORM_USER_PROMPT = """\
+=== Investor context ===
+A (risk aversion): {A_value}
+Risk level: {level_code} — {level_name}
+Questionnaire score: {total_score}/75
+
+=== Recommended portfolio ===
+{top_holdings_block}
+
+Annualized expected return: {expected_return_pct}
+Annualized volatility:      {std_pct}
+Sharpe ratio:                {sharpe:.2f}
+Utility U = r − A·σ²/2:      {utility:.4f}
+Data source: {data_source}
+
+=== Conversation history (most recent first) ===
+{history_block}
+
+=== User's latest question ===
+\"\"\"{user_text}\"\"\"
+
+Reply directly to the user in 2–5 sentences. Do not use JSON.
+"""
+
+
+def format_history_block(history: list[tuple[str, str]], max_pairs: int = 4) -> str:
+    """Render the last N user/assistant exchanges for the freeform prompt.
+
+    Each item is a (role, text) tuple where role ∈ {'user', 'assistant'}.
+    Most recent first, trimmed to keep prompts small.
+    """
+    if not history:
+        return "(no prior exchanges)"
+    trimmed = history[-(max_pairs * 2):][::-1]
+    lines = []
+    for role, text in trimmed:
+        text_short = (text or "").strip().replace("\n", " ")
+        if len(text_short) > 180:
+            text_short = text_short[:180] + "…"
+        lines.append(f"- {role}: {text_short}")
+    return "\n".join(lines)
+
+
+
 
 
 def format_options_block(options: list[tuple[str, str, int]]) -> str:

@@ -24,6 +24,7 @@ import streamlit as st
 from config import FUND_MAP, LLM_CONFIG, QUESTIONS
 from data_loader import fund_display_name
 from engine import optimize_portfolio
+from llm_client import set_llm_enabled
 from state_machine import (
     BotSegment,
     Phase,
@@ -141,10 +142,15 @@ def _init_session() -> None:
     if "fsm" not in st.session_state:
         st.session_state.fsm = SessionState()
         st.session_state.chat_history: list[tuple[str, BotSegment | str]] = []
+        # LLM runtime toggle — defaults to ON when a key is configured.
+        st.session_state.llm_enabled = bool(LLM_CONFIG.available)
         for seg in greet():
             st.session_state.chat_history.append(("assistant", seg))
 
 _init_session()
+
+# Push session toggle down into the llm_client module every rerun.
+set_llm_enabled(st.session_state.get("llm_enabled", False))
 
 
 # ---------------------------------------------------------------------------
@@ -165,23 +171,55 @@ def _stage_label(phase: Phase, current_q: int) -> str:
 def render_header() -> None:
     fsm: SessionState = st.session_state.fsm
     stage = _stage_label(fsm.phase, fsm.current_q)
-    llm_on = LLM_CONFIG.available
+
+    key_configured = bool(LLM_CONFIG.available)
+    llm_on = bool(st.session_state.get("llm_enabled", False)) and key_configured
     llm_label = f"LLM: {LLM_CONFIG.model}" if llm_on else "LLM: Mock (offline)"
-    st.markdown(
-        f"""
-        <div class="app-header">
-          <div>
-            <div class="title">📊 MDFinTech Robo-Adviser</div>
-            <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
-          </div>
-          <div style="display:flex; gap:10px;">
-            <span class="stage-chip">● {stage}</span>
-            <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    # Two-column header: title block + controls block (stage chip + LLM toggle).
+    col_title, col_ctrl = st.columns([0.62, 0.38])
+    with col_title:
+        st.markdown(
+            f"""
+            <div class="app-header" style="padding-bottom:0;border:0;box-shadow:none;">
+              <div>
+                <div class="title">📊 MDFinTech Robo-Adviser</div>
+                <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col_ctrl:
+        inner = st.columns([0.55, 0.45])
+        with inner[0]:
+            st.markdown(
+                f"""
+                <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;height:44px;">
+                  <span class="stage-chip">● {stage}</span>
+                  <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with inner[1]:
+            if key_configured:
+                st.toggle(
+                    "Enable LLM",
+                    key="llm_enabled",
+                    help=(
+                        "ON: DeepSeek/OpenAI-compatible model powers "
+                        "natural-language parsing and open-ended Q&A.\n"
+                        "OFF: rule-based Mock only — offline-safe, deterministic."
+                    ),
+                )
+            else:
+                st.toggle(
+                    "Enable LLM",
+                    value=False,
+                    disabled=True,
+                    help="No API key is configured. Add OPENAI_API_KEY in Secrets to enable.",
+                )
 
 
 render_header()
