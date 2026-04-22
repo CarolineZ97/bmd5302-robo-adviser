@@ -48,7 +48,7 @@ st.set_page_config(
     page_title="MDFinTech Robo-Adviser",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 CUSTOM_CSS = """
@@ -74,6 +74,7 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, system-ui, san
 }
 .app-header .title { font-weight: 700; font-size: 20px; letter-spacing: .3px; }
 .app-header .subtitle { font-size: 12px; color: #C9D6E4; margin-top: 2px; }
+
 .stage-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 12px; border-radius: 999px;
@@ -169,59 +170,70 @@ def _stage_label(phase: Phase, current_q: int) -> str:
 
 
 def render_header() -> None:
+    """Pure-HTML navy banner (no Streamlit widgets inside — avoids the big
+    white padding block caused by st.columns in the header row).
+
+    The LLM runtime toggle lives in the sidebar (see render_sidebar_controls)
+    where it has a stable DOM position and doesn't fight the banner layout.
+    """
     fsm: SessionState = st.session_state.fsm
     stage = _stage_label(fsm.phase, fsm.current_q)
-
     key_configured = bool(LLM_CONFIG.available)
     llm_on = bool(st.session_state.get("llm_enabled", False)) and key_configured
     llm_label = f"LLM: {LLM_CONFIG.model}" if llm_on else "LLM: Mock (offline)"
+    st.markdown(
+        f"""
+        <div class="app-header">
+          <div>
+            <div class="title">📊 MDFinTech Robo-Adviser</div>
+            <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span class="stage-chip">● {stage}</span>
+            <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    # Two-column header: title block + controls block (stage chip + LLM toggle).
-    col_title, col_ctrl = st.columns([0.62, 0.38])
-    with col_title:
-        st.markdown(
-            f"""
-            <div class="app-header" style="padding-bottom:0;border:0;box-shadow:none;">
-              <div>
-                <div class="title">📊 MDFinTech Robo-Adviser</div>
-                <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col_ctrl:
-        inner = st.columns([0.55, 0.45])
-        with inner[0]:
-            st.markdown(
-                f"""
-                <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;height:44px;">
-                  <span class="stage-chip">● {stage}</span>
-                  <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
+
+def render_sidebar_controls() -> None:
+    """LLM toggle + quick help live in the sidebar so the banner stays clean."""
+    with st.sidebar:
+        st.markdown("### ⚙️ Controls")
+        key_configured = bool(LLM_CONFIG.available)
+        if key_configured:
+            st.toggle(
+                "Enable LLM",
+                key="llm_enabled",
+                help=(
+                    "ON: DeepSeek/OpenAI-compatible model powers "
+                    "natural-language parsing and open-ended Q&A.\n\n"
+                    "OFF: rule-based Mock only — offline-safe, deterministic."
+                ),
             )
-        with inner[1]:
-            if key_configured:
-                st.toggle(
-                    "Enable LLM",
-                    key="llm_enabled",
-                    help=(
-                        "ON: DeepSeek/OpenAI-compatible model powers "
-                        "natural-language parsing and open-ended Q&A.\n"
-                        "OFF: rule-based Mock only — offline-safe, deterministic."
-                    ),
-                )
-            else:
-                st.toggle(
-                    "Enable LLM",
-                    value=False,
-                    disabled=True,
-                    help="No API key is configured. Add OPENAI_API_KEY in Secrets to enable.",
-                )
+            on = bool(st.session_state.get("llm_enabled", False))
+            st.caption(
+                f"Model: `{LLM_CONFIG.model}`  \n"
+                f"Status: {'🟢 live' if on else '🟡 muted (Mock mode)'}"
+            )
+        else:
+            st.toggle("Enable LLM", value=False, disabled=True)
+            st.caption("🔒 No API key configured. Add `OPENAI_API_KEY` in Secrets to enable.")
+
+        st.divider()
+        st.markdown("### 💬 Quick commands")
+        st.caption(
+            "- `start` — begin the questionnaire\n"
+            "- `what if A = 2` — re-optimize with a new risk aversion\n"
+            "- `explain sharpe` — metric deep-dive\n"
+            "- `export pdf` — download advice report\n"
+            "- `restart` — retake the questionnaire"
+        )
 
 
+render_sidebar_controls()
 render_header()
 
 
