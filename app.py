@@ -48,7 +48,7 @@ st.set_page_config(
     page_title="MDFinTech Robo-Adviser",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 CUSTOM_CSS = """
@@ -62,10 +62,14 @@ CUSTOM_CSS = """
   --text-secondary: #5A6B85;
 }
 html, body, [class*="css"] { font-family: 'Inter', -apple-system, system-ui, sans-serif; }
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1400px; }
+.block-container { padding-top: 0.4rem; padding-bottom: 2rem; max-width: 1400px; }
+/* Streamlit 1.40 adds a ~4rem empty block at the very top — kill it. */
+.stAppViewBlockContainer { padding-top: 0.4rem !important; }
+header[data-testid="stHeader"] { height: 0; background: transparent; }
 
 /* Header bar */
 .app-header {
+  position: relative;
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 20px; border-radius: 14px;
   background: linear-gradient(135deg, var(--navy) 0%, var(--midnight) 100%);
@@ -74,6 +78,42 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, system-ui, san
 }
 .app-header .title { font-weight: 700; font-size: 20px; letter-spacing: .3px; }
 .app-header .subtitle { font-size: 12px; color: #C9D6E4; margin-top: 2px; }
+
+/* LLM pill-button lifted into the banner's top-right corner.
+   `st.container(key="llm_btn_lift")` stamps the DOM node with class
+   `st-key-llm_btn_lift`. We pull the whole container up with negative
+   margin so the button lands on the banner's right edge. */
+.st-key-llm_btn_lift {
+  margin-top: -58px !important;
+  margin-bottom: 32px !important;
+  position: relative;
+  z-index: 20;
+  pointer-events: none;
+}
+.st-key-llm_btn_lift [data-testid="stHorizontalBlock"] { gap: 0 !important; }
+.st-key-llm_btn_lift [data-testid="column"] > div { gap: 0 !important; }
+.st-key-llm_btn_lift [data-testid="stButton"] { pointer-events: auto; }
+.st-key-llm_btn_lift [data-testid="stButton"] > button {
+  background: rgba(255,255,255,0.12) !important;
+  color: white !important;
+  border: 1px solid rgba(255,255,255,0.30) !important;
+  border-radius: 999px !important;
+  padding: 4px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  min-height: 0 !important;
+  height: 32px !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
+}
+.st-key-llm_btn_lift [data-testid="stButton"] > button:hover {
+  background: rgba(255,255,255,0.22) !important;
+  border-color: rgba(255,255,255,0.50) !important;
+}
+.st-key-llm_btn_lift [data-testid="stButton"] > button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .stage-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -170,17 +210,23 @@ def _stage_label(phase: Phase, current_q: int) -> str:
 
 
 def render_header() -> None:
-    """Pure-HTML navy banner (no Streamlit widgets inside — avoids the big
-    white padding block caused by st.columns in the header row).
+    """Navy banner with the LLM pill-button lifted into its top-right corner.
 
-    The LLM runtime toggle lives in the sidebar (see render_sidebar_controls)
-    where it has a stable DOM position and doesn't fight the banner layout.
+    Strategy:
+      1) Paint the banner as raw HTML.
+      2) Put the pill-button inside `st.container(key="llm_btn_lift")` so
+         Streamlit stamps a real CSS class (`st-key-llm_btn_lift`) on the
+         container's DOM wrapper.
+      3) CSS pulls that wrapper up with a negative top margin so the button
+         sits on the banner's right edge — no visible empty row.
     """
     fsm: SessionState = st.session_state.fsm
     stage = _stage_label(fsm.phase, fsm.current_q)
     key_configured = bool(LLM_CONFIG.available)
     llm_on = bool(st.session_state.get("llm_enabled", False)) and key_configured
     llm_label = f"LLM: {LLM_CONFIG.model}" if llm_on else "LLM: Mock (offline)"
+
+    # 1) Banner.
     st.markdown(
         f"""
         <div class="app-header">
@@ -188,7 +234,7 @@ def render_header() -> None:
             <div class="title">📊 MDFinTech Robo-Adviser</div>
             <div class="subtitle">BMD5302 · Part 3 · Markowitz + AI Chatbot</div>
           </div>
-          <div style="display:flex; gap:10px; align-items:center;">
+          <div style="display:flex; gap:10px; align-items:center; padding-right:130px;">
             <span class="stage-chip">● {stage}</span>
             <span class="llm-chip"><span class="llm-dot {'on' if llm_on else 'off'}"></span>{llm_label}</span>
           </div>
@@ -197,43 +243,23 @@ def render_header() -> None:
         unsafe_allow_html=True,
     )
 
-
-def render_sidebar_controls() -> None:
-    """LLM toggle + quick help live in the sidebar so the banner stays clean."""
-    with st.sidebar:
-        st.markdown("### ⚙️ Controls")
-        key_configured = bool(LLM_CONFIG.available)
-        if key_configured:
-            st.toggle(
-                "Enable LLM",
-                key="llm_enabled",
-                help=(
-                    "ON: DeepSeek/OpenAI-compatible model powers "
-                    "natural-language parsing and open-ended Q&A.\n\n"
-                    "OFF: rule-based Mock only — offline-safe, deterministic."
-                ),
-            )
-            on = bool(st.session_state.get("llm_enabled", False))
-            st.caption(
-                f"Model: `{LLM_CONFIG.model}`  \n"
-                f"Status: {'🟢 live' if on else '🟡 muted (Mock mode)'}"
-            )
-        else:
-            st.toggle("Enable LLM", value=False, disabled=True)
-            st.caption("🔒 No API key configured. Add `OPENAI_API_KEY` in Secrets to enable.")
-
-        st.divider()
-        st.markdown("### 💬 Quick commands")
-        st.caption(
-            "- `start` — begin the questionnaire\n"
-            "- `what if A = 2` — re-optimize with a new risk aversion\n"
-            "- `explain sharpe` — metric deep-dive\n"
-            "- `export pdf` — download advice report\n"
-            "- `restart` — retake the questionnaire"
-        )
+    # 2) Pill-button inside a keyed container (Streamlit ≥ 1.36).
+    with st.container(key="llm_btn_lift"):
+        _, btn_col = st.columns([0.82, 0.18])
+        with btn_col:
+            if key_configured:
+                btn_label = "🟢  LLM on" if llm_on else "⚪  LLM off"
+                if st.button(btn_label, key="btn_llm_toggle", use_container_width=True):
+                    st.session_state.llm_enabled = not llm_on
+                    st.rerun()
+            else:
+                st.button("🔒  LLM off",
+                          key="btn_llm_toggle",
+                          use_container_width=True,
+                          disabled=True,
+                          help="No API key is configured. Add OPENAI_API_KEY in Secrets to enable.")
 
 
-render_sidebar_controls()
 render_header()
 
 
