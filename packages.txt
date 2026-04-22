@@ -1,3 +1,1 @@
-# apt packages installed on the Streamlit Cloud container (Debian).
-# reportlab 生成 PDF 时需要系统字体；fonts-dejavu-core 保证中英文可渲染。
 fonts-dejavu-core
